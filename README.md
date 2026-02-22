@@ -1,4 +1,4 @@
-# 🏪 IrshadStore POS & Inventory Dashboard
+#  IrshadStore POS & Inventory Dashboard
 
 A high-performance, professional **Point of Sale (POS)** and **Sales Analytics** dashboard. This application is designed to streamline retail operations with a focus on speed, data persistence, and a premium "Deep Blue" aesthetic.
 
@@ -6,10 +6,10 @@ A high-performance, professional **Point of Sale (POS)** and **Sales Analytics**
 
 ---
 
-## 🚀 Overview
+##  Overview
 IrshadStore is a React-based solution for small to medium-sized retail businesses. It bridges the gap between simple data entry and business intelligence by providing real-time sales tracking, automated goal monitoring, and one-click data portability.
 
-## ✨ Key Features
+##  Key Features
 
 ### **1. Professional POS Interface**
 * **Smart Search:** Real-time filtering across 50+ inventory items using optimized search logic.
