@@ -328,7 +328,7 @@ const IrshadStore = () => {
           
           <div className="revenue-glass">
             <div className="stat"><span>Top Item (by qty)</span><h2>{getTopItemByQuantity()}</h2></div>
-            <div className="stat"><span>Avg Order</span><h2>{avgSale}</h2></div>
+            <div className="stat"><span>Avg Order</span><h2>{avgOrder}</h2></div>
             <div className="stat accent"><span>Revenue</span><h2>{totalRevenue.toLocaleString()}</h2></div>
             <div className="stat"><span>Transactions</span><h2>{filteredSales.length}</h2></div>
           </div>
