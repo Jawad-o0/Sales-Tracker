@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import './App.css';
 
-const INVENTORY = [
+// ------------------- INITIAL INVENTORY -------------------
+const DEFAULT_INVENTORY = [
   { id: 1, name: "Sugar (Cheeni)", price: 155, category: 'loose', type: 'solid' },
   { id: 2, name: "Basmati Rice", price: 340, category: 'loose', type: 'solid' },
   { id: 3, name: "Milk (Doodh)", price: 220, category: 'loose', type: 'liquid' },
@@ -40,111 +41,219 @@ const INVENTORY = [
   { id: 54, name: "Lays Chips", price: 50, category: 'count' }
 ];
 
+// ------------------- HELPER FUNCTIONS -------------------
+const getTodayDate = () => new Date().toISOString().split('T')[0];
+
+const calculateTotal = (item, qty, unit) => {
+  if (!item) return 0;
+  if (item.category === 'fixed') return item.price * qty;   // fixed items: price per packet
+  if (item.category === 'count') return item.price * qty;
+  // loose items: price is per kg or per L
+  if (unit === 'g' || unit === 'ml') return (item.price / 1000) * qty;
+  return item.price * qty; // kg or L
+};
+
+// ------------------- MAIN COMPONENT -------------------
 const IrshadStore = () => {
+  // Page & UI state
   const [page, setPage] = useState('shop');
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState('all');
-  const [activeItem, setActiveItem] = useState(null);
-  const [qty, setQty] = useState(1);
-  const [unit, setUnit] = useState('');
   const [toast, setToast] = useState(null);
-
-  // Load sales from LocalStorage
+  
+  // Inventory state (supports CRUD)
+  const [inventory, setInventory] = useState(() => {
+    const saved = localStorage.getItem('irshad_inventory');
+    return saved ? JSON.parse(saved) : DEFAULT_INVENTORY;
+  });
+  
+  // Sales state with date
   const [sales, setSales] = useState(() => {
     const saved = localStorage.getItem('irshad_sales_data');
     return saved ? JSON.parse(saved) : [];
   });
-
-  // Save to LocalStorage
+  
+  // Modal states
+  const [activeItem, setActiveItem] = useState(null);
+  const [qty, setQty] = useState(1);
+  const [unit, setUnit] = useState('');
+  const [showInventoryModal, setShowInventoryModal] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
+  const [editingSale, setEditingSale] = useState(null); // for edit sale modal
+  
+  // Report filters
+  const [dateRange, setDateRange] = useState('today'); // 'today', 'week', 'all'
+  const [reportSearch, setReportSearch] = useState('');
+  
+  // Persist inventory & sales
+  useEffect(() => {
+    localStorage.setItem('irshad_inventory', JSON.stringify(inventory));
+  }, [inventory]);
+  
   useEffect(() => {
     localStorage.setItem('irshad_sales_data', JSON.stringify(sales));
   }, [sales]);
-
-  // Toast Timer
+  
+  // Toast auto-dismiss
   useEffect(() => {
     if (toast) {
       const timer = setTimeout(() => setToast(null), 3000);
       return () => clearTimeout(timer);
     }
   }, [toast]);
-
-  // --- ANALYTICS LOGIC ---
-  const DAILY_GOAL = 50000;
-  const totalRevenue = sales.reduce((acc, sale) => acc + sale.total, 0);
-  const progress = Math.min((totalRevenue / DAILY_GOAL) * 100, 100);
-
-  const getTopItem = () => {
-    if (sales.length === 0) return "No Sales";
-    const counts = sales.reduce((acc, s) => {
-      acc[s.name] = (acc[s.name] || 0) + 1;
-      return acc;
-    }, {});
-    return Object.keys(counts).reduce((a, b) => counts[a] > counts[b] ? a : b);
+  
+  // Helper: filter sales by date range
+  const getFilteredSales = () => {
+    const today = getTodayDate();
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const weekAgoStr = weekAgo.toISOString().split('T')[0];
+    
+    return sales.filter(sale => {
+      if (dateRange === 'today') return sale.date === today;
+      if (dateRange === 'week') return sale.date >= weekAgoStr;
+      return true;
+    }).filter(sale => 
+      sale.name.toLowerCase().includes(reportSearch.toLowerCase())
+    );
   };
-
-  const avgSale = sales.length > 0 ? (totalRevenue / sales.length).toFixed(0) : 0;
-
-  // --- SEARCH & FILTER LOGIC ---
+  
+  const filteredSales = useMemo(() => getFilteredSales(), [sales, dateRange, reportSearch]);
+  
+  // Stats based on filtered sales
+  const totalRevenue = filteredSales.reduce((sum, s) => sum + s.total, 0);
+  const DAILY_GOAL = 50000;
+  const todaySales = sales.filter(s => s.date === getTodayDate());
+  const todayRevenue = todaySales.reduce((sum, s) => sum + s.total, 0);
+  const progress = Math.min((todayRevenue / DAILY_GOAL) * 100, 100);
+  
+  const getTopItemByQuantity = () => {
+    if (filteredSales.length === 0) return "No Sales";
+    const qtyMap = new Map();
+    filteredSales.forEach(sale => {
+      let quantityInBaseUnit = sale.qty;
+      if (sale.unit === 'g') quantityInBaseUnit = sale.qty / 1000;
+      if (sale.unit === 'ml') quantityInBaseUnit = sale.qty / 1000;
+      qtyMap.set(sale.name, (qtyMap.get(sale.name) || 0) + quantityInBaseUnit);
+    });
+    let topName = '', topQty = -1;
+    for (let [name, qty] of qtyMap.entries()) {
+      if (qty > topQty) { topQty = qty; topName = name; }
+    }
+    return topName;
+  };
+  
+  const avgOrder = filteredSales.length ? (totalRevenue / filteredSales.length).toFixed(0) : 0;
+  
+  // Inventory search & filter for shop page
   const filteredInventory = useMemo(() => {
-    return INVENTORY.filter(item => {
+    return inventory.filter(item => {
       const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesCategory = activeFilter === 'all' || item.category === activeFilter;
       return matchesSearch && matchesCategory;
     });
-  }, [searchTerm, activeFilter]);
-
-  const calculateTotal = (item, q, u) => {
-    if (!item) return 0;
-    if (item.category === 'fixed' || item.category === 'count') return item.price * q;
-    return (u === 'g' || u === 'ml') ? (item.price / 1000) * q : item.price * q;
-  };
-
+  }, [inventory, searchTerm, activeFilter]);
+  
+  // Open sale modal with correct unit defaults
   const openSaleModal = (item) => {
     setActiveItem(item);
     setQty(1);
-    setUnit(item.category === 'count' ? 'pcs' : (item.type === 'solid' ? 'kg' : 'L'));
+    if (item.category === 'count') {
+      setUnit('pcs');
+    } else if (item.category === 'fixed') {
+      setUnit('pkt');
+    } else { // loose
+      setUnit(item.type === 'solid' ? 'kg' : 'L');
+    }
   };
-
+  
   const saveSale = () => {
+    if (!activeItem) return;
     const total = calculateTotal(activeItem, qty, unit);
+    const now = new Date();
     const newSale = {
       id: Date.now(),
       name: activeItem.name,
       qty, unit, total,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      date: now.toISOString().split('T')[0],
+      datetime: now.toISOString()
     };
     setSales([newSale, ...sales]);
-    setToast(`${activeItem.name} Recorded`);
+    setToast(`${activeItem.name} recorded`);
     setActiveItem(null);
-    setSearchTerm(''); 
+    setSearchTerm('');
   };
-
+  
+  const updateSale = () => {
+    if (!editingSale) return;
+    const total = calculateTotal(activeItem, qty, unit);
+    const updatedSale = {
+      ...editingSale,
+      qty, unit, total,
+      // update time to now to reflect edit moment
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      datetime: new Date().toISOString()
+    };
+    setSales(sales.map(s => s.id === editingSale.id ? updatedSale : s));
+    setToast(`${activeItem.name} updated`);
+    setEditingSale(null);
+    setActiveItem(null);
+  };
+  
+  const deleteSale = (id, name) => {
+    if (window.confirm(`Delete sale of ${name}?`)) {
+      setSales(sales.filter(s => s.id !== id));
+      setToast(`${name} removed`);
+    }
+  };
+  
   const exportCSV = () => {
-    const headers = "Time,Item,Qty,Unit,Total(PKR)\n";
-    const data = sales.map(s => `${s.time},${s.name},${s.qty},${s.unit},${s.total}`).join("\n");
+    const headers = "Date,Time,Item,Qty,Unit,Total(PKR)\n";
+    const data = filteredSales.map(s => 
+      `${s.date},${s.time},${s.name},${s.qty},${s.unit},${s.total}`
+    ).join("\n");
     const blob = new Blob([headers + data], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `IrshadStore_Sales_${new Date().toLocaleDateString()}.csv`;
+    link.download = `IrshadStore_${dateRange}_${getTodayDate()}.csv`;
     link.click();
   };
-
+  
+  // Inventory CRUD
+  const addOrUpdateItem = (item) => {
+    if (editingItem) {
+      setInventory(inventory.map(i => i.id === editingItem.id ? item : i));
+      setToast(`${item.name} updated`);
+    } else {
+      const newId = Math.max(...inventory.map(i => i.id), 0) + 1;
+      setInventory([...inventory, { ...item, id: newId }]);
+      setToast(`${item.name} added`);
+    }
+    setShowInventoryModal(false);
+    setEditingItem(null);
+  };
+  
+  const deleteItem = (id, name) => {
+    if (window.confirm(`Delete item "${name}"? This will NOT affect past sales.`)) {
+      setInventory(inventory.filter(i => i.id !== id));
+      setToast(`${name} removed from inventory`);
+    }
+  };
+  
   return (
     <div className="app-shell">
-      {/* Toast Popup */}
       {toast && (
         <div className="toast-popup">
           <div className="toast-content">
             <div className="toast-text">
-              <strong>Order Saved</strong>
-              <p>{toast}</p>
+              <strong>✓</strong> <p>{toast}</p>
             </div>
           </div>
         </div>
       )}
-
-      {/* Glass Navigation */}
+      
       <nav className="glass-nav">
         <h1 className="logo">Irshad<span>Store</span></h1>
         {page === 'shop' && (
@@ -158,12 +267,14 @@ const IrshadStore = () => {
         <div className="nav-btns">
           <button className={page === 'shop' ? 'active' : ''} onClick={() => setPage('shop')}>POS</button>
           <button className={page === 'report' ? 'active' : ''} onClick={() => setPage('report')}>Report</button>
+          <button onClick={() => { setEditingItem(null); setShowInventoryModal(true); }}>
+            📦 Items
+          </button>
         </div>
       </nav>
-
+      
       {page === 'shop' ? (
         <main>
-          {/* Filter Pills */}
           <div className="filter-pills">
             {['all', 'loose', 'fixed', 'count'].map(cat => (
               <button 
@@ -174,48 +285,71 @@ const IrshadStore = () => {
               </button>
             ))}
           </div>
-
           <div className="store-grid">
             {filteredInventory.map(item => (
               <div key={item.id} className="item-card" onClick={() => openSaleModal(item)}>
                 <div className={`badge ${item.category}`}>{item.category}</div>
-                <h4 style={{marginTop: '10px'}}>{item.name}</h4>
+                <h4>{item.name}</h4>
                 <p style={{color: '#00d4ff', fontWeight: '800'}}>Rs. {item.price}</p>
+                <button className="edit-item-btn" onClick={(e) => { e.stopPropagation(); setEditingItem(item); setShowInventoryModal(true); }}>✏️</button>
+                <button className="delete-item-btn" onClick={(e) => { e.stopPropagation(); deleteItem(item.id, item.name); }}>🗑️</button>
               </div>
             ))}
           </div>
         </main>
       ) : (
         <section className="report-view">
-          {/* Daily Performance Section */}
+          {/* Daily Goal Card */}
           <div className="performance-card">
             <div className="goal-info">
-              <span>Target: {DAILY_GOAL.toLocaleString()} PKR</span>
+              <span>Today's Target: {DAILY_GOAL.toLocaleString()} PKR</span>
               <span style={{color: '#00d4ff', fontWeight: 'bold'}}>{progress.toFixed(0)}%</span>
             </div>
             <div className="progress-container">
               <div className="progress-bar" style={{ width: `${progress}%` }}></div>
             </div>
-          </div>
-
-          <div className="revenue-glass">
-            <div className="stat"><span>Top Item</span><h2 style={{fontSize:'1rem', color:'#00d4ff'}}>{getTopItem()}</h2></div>
-            <div className="stat"><span>Avg Order</span><h2>{avgSale}</h2></div>
-            <div className="stat accent"><span>Total Income</span><h2>+{totalRevenue.toLocaleString()}</h2></div>
-            <button className="export-btn" onClick={exportCSV}>CSV</button>
+            <div style={{marginTop: '10px', fontSize: '0.9rem'}}>
+              Today's revenue: {todayRevenue.toLocaleString()} PKR
+            </div>
           </div>
           
+          {/* Filter bar for report */}
+          <div className="report-filters">
+            <div className="date-buttons">
+              <button className={dateRange === 'today' ? 'active' : ''} onClick={() => setDateRange('today')}>Today</button>
+              <button className={dateRange === 'week' ? 'active' : ''} onClick={() => setDateRange('week')}>This Week</button>
+              <button className={dateRange === 'all' ? 'active' : ''} onClick={() => setDateRange('all')}>All Time</button>
+            </div>
+            <input 
+              type="text" className="search-input" placeholder="Filter sales by product..." 
+              value={reportSearch} onChange={(e) => setReportSearch(e.target.value)}
+            />
+            <button className="export-btn" onClick={exportCSV}>📎 CSV</button>
+          </div>
+          
+          {/* Stats cards */}
+          <div className="revenue-glass">
+            <div className="stat"><span>Top Item (by qty)</span><h2>{getTopItemByQuantity()}</h2></div>
+            <div className="stat"><span>Avg Order</span><h2>{avgSale}</h2></div>
+            <div className="stat accent"><span>Revenue</span><h2>{totalRevenue.toLocaleString()}</h2></div>
+            <div className="stat"><span>Transactions</span><h2>{filteredSales.length}</h2></div>
+          </div>
+          
+          {/* Sales table */}
           <div className="table-glass">
             <table>
-              <thead><tr><th>Time</th><th>Item</th><th>Qty</th><th>Total</th><th>Action</th></tr></thead>
+              <thead>
+                <tr><th>Date</th><th>Time</th><th>Item</th><th>Qty</th><th>Total</th><th>Actions</th></tr>
+              </thead>
               <tbody>
-                {sales.map(s => (
+                {filteredSales.map(s => (
                   <tr key={s.id}>
-                    <td>{s.time}</td>
-                    <td>{s.name}</td>
-                    <td>{s.qty}{s.unit}</td>
-                    <td>Rs. {s.total.toFixed(0)}</td>
-                    <td><button className="delete-btn" onClick={() => setSales(sales.filter(i => i.id !== s.id))}>VOID🗑️</button></td>
+                    <td>{s.date}</td><td>{s.time}</td><td>{s.name}</td>
+                    <td>{s.qty}{s.unit}</td><td>Rs. {s.total.toFixed(0)}</td>
+                    <td>
+                      <button className="edit-sale-btn" onClick={() => { setEditingSale(s); setActiveItem(inventory.find(i => i.name === s.name)); setQty(s.qty); setUnit(s.unit); }}>✏️</button>
+                      <button className="delete-btn" onClick={() => deleteSale(s.id, s.name)}>🗑️</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -223,79 +357,109 @@ const IrshadStore = () => {
           </div>
         </section>
       )}
-
-      {/* Restored Cool Modal */}
-      {activeItem && (
+      
+      {/* Sale Modal (also reused for editing) */}
+      {(activeItem || editingSale) && (
         <div className="overlay">
-         <div className="cool-modal">
-  <div className="modal-accent"></div>
-  <div className="modal-head">
-    <span className="badge" style={{ background: 'rgba(255,255,255,0.1)', color: '#00d4ff' }}>
-      {activeItem.category.toUpperCase()}
-    </span>
-    <h3 style={{ fontSize: '28px', marginTop: '10px', marginBottom: '5px' }}>{activeItem.name}</h3>
-    {/* Prominent Price Display */}
-    <p style={{ fontSize: '1.2rem', color: '#00d4ff', fontWeight: '800' }}>
-      Rs. {activeItem.price}
-    </p>
-  </div>
-
-  <div className="modal-body">
-    {activeItem.category === 'fixed' ? (
-      <div className="pack-grid">
-        {/* We use the .sel class here to match the new CSS vibe */}
-        {[1, 0.5, 0.25].map(v => (
-          <button 
-            key={v} 
-            className={qty === v ? 'sel' : ''} 
-            onClick={() => setQty(v)}
-          >
-            {v === 1 ? '1 kg' : `${v * 1000} gram`}
-          </button>
-        ))}
-      </div>
-    ) : (
-      <div className="manual-input">
-        <input 
-          type="number" 
-          value={qty} 
-          onChange={(e) => setQty(parseFloat(e.target.value) || 0)} 
-          autoFocus 
-        />
-        
-        {activeItem.category === 'loose' && (
-          <div className="unit-toggle-container">
-            <div className={`unit-slider ${['g', 'ml'].includes(unit) ? 'shift' : ''}`}></div>
-            <button 
-              className={`unit-btn ${['kg', 'L'].includes(unit) ? 'active' : ''}`}
-              onClick={() => setUnit(activeItem.type === 'solid' ? 'kg' : 'L')}
-            >
-              {activeItem.type === 'solid' ? 'KG' : 'LITRE'}
-            </button>
-            <button 
-              className={`unit-btn ${['g', 'ml'].includes(unit) ? 'active' : ''}`}
-              onClick={() => setUnit(activeItem.type === 'solid' ? 'g' : 'ml')}
-            >
-              {activeItem.type === 'solid' ? 'GRAMS' : 'ML'}
-            </button>
+          <div className="cool-modal">
+            <div className="modal-accent"></div>
+            <div className="modal-head">
+              <span className="badge" style={{ background: 'rgba(255,255,255,0.1)', color: '#00d4ff' }}>
+                {activeItem?.category?.toUpperCase() || editingSale?.category?.toUpperCase()}
+              </span>
+              <h3>{activeItem?.name || editingSale?.name}</h3>
+              <p style={{ fontSize: '1.2rem', color: '#00d4ff', fontWeight: '800' }}>
+                Rs. {activeItem?.price}
+              </p>
+            </div>
+            <div className="modal-body">
+              {activeItem?.category === 'fixed' ? (
+                <div className="pack-grid">
+                  <button className={qty === 1 ? 'sel' : ''} onClick={() => setQty(1)}>1 Packet</button>
+                  <button className={qty === 2 ? 'sel' : ''} onClick={() => setQty(2)}>2 Packets</button>
+                  <button className={qty === 3 ? 'sel' : ''} onClick={() => setQty(3)}>3 Packets</button>
+                  <input type="number" value={qty} onChange={(e) => setQty(Math.max(1, parseInt(e.target.value) || 1))} style={{gridColumn: 'span 3'}} />
+                </div>
+              ) : activeItem?.category === 'count' ? (
+                <input type="number" value={qty} onChange={(e) => setQty(Math.max(1, parseInt(e.target.value) || 1))} autoFocus />
+              ) : (
+                <div className="manual-input">
+                  <input type="number" value={qty} onChange={(e) => setQty(parseFloat(e.target.value) || 0)} autoFocus />
+                  <div className="unit-toggle-container">
+                    <div className={`unit-slider ${(unit === 'g' || unit === 'ml') ? 'shift' : ''}`}></div>
+                    <button className={`unit-btn ${unit === (activeItem?.type === 'solid' ? 'kg' : 'L') ? 'active' : ''}`}
+                      onClick={() => setUnit(activeItem?.type === 'solid' ? 'kg' : 'L')}>
+                      {activeItem?.type === 'solid' ? 'KG' : 'LITRE'}
+                    </button>
+                    <button className={`unit-btn ${unit === (activeItem?.type === 'solid' ? 'g' : 'ml') ? 'active' : ''}`}
+                      onClick={() => setUnit(activeItem?.type === 'solid' ? 'g' : 'ml')}>
+                      {activeItem?.type === 'solid' ? 'GRAMS' : 'ML'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="modal-foot">
+              <button className="confirm-cool" onClick={editingSale ? updateSale : saveSale}>
+                {editingSale ? 'Update' : 'Confirm'} – Rs. {calculateTotal(activeItem || editingSale, qty, unit).toFixed(0)}
+              </button>
+              <button className="cancel-cool" onClick={() => { setActiveItem(null); setEditingSale(null); }}>
+                Go Back
+              </button>
+            </div>
           </div>
-        )}
-      </div>
-    )}
-  </div>
-
-  <div className="modal-foot">
-    <button className="confirm-cool" onClick={saveSale}>
-      Confirm Amount: Rs. {calculateTotal(activeItem, qty, unit).toFixed(0)}
-    </button>
-    {/* Changed to button with cancel-cool class */}
-    <button className="cancel-cool" onClick={() => setActiveItem(null)}>
-      Go Back
-    </button>
-  </div>
-</div>
         </div>
       )}
+      
+      {/* Inventory Management Modal */}
+      {showInventoryModal && (
+        <InventoryModal 
+          item={editingItem}
+          onSave={addOrUpdateItem}
+          onClose={() => { setShowInventoryModal(false); setEditingItem(null); }}
+        />
+      )}
+    </div>
+  );
+};
+
+// ------------------- INVENTORY MODAL COMPONENT -------------------
+const InventoryModal = ({ item, onSave, onClose }) => {
+  const [name, setName] = useState(item?.name || '');
+  const [price, setPrice] = useState(item?.price || 0);
+  const [category, setCategory] = useState(item?.category || 'loose');
+  const [type, setType] = useState(item?.type || 'solid');
+  
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    onSave({ name: name.trim(), price: parseFloat(price), category, type: category === 'loose' ? type : undefined });
+  };
+  
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="cool-modal" onClick={(e) => e.stopPropagation()}>
+        <h3>{item ? 'Edit Item' : 'Add New Item'}</h3>
+        <form onSubmit={handleSubmit}>
+          <input type="text" placeholder="Item name" value={name} onChange={(e) => setName(e.target.value)} required />
+          <input type="number" placeholder="Price" value={price} onChange={(e) => setPrice(e.target.value)} required />
+          <select value={category} onChange={(e) => setCategory(e.target.value)}>
+            <option value="loose">Loose (by weight/volume)</option>
+            <option value="fixed">Fixed (packet)</option>
+            <option value="count">Count (per piece)</option>
+          </select>
+          {category === 'loose' && (
+            <select value={type} onChange={(e) => setType(e.target.value)}>
+              <option value="solid">Solid (kg/g)</option>
+              <option value="liquid">Liquid (L/ml)</option>
+            </select>
+          )}
+          <div style={{display: 'flex', gap: '10px', marginTop: '20px'}}>
+            <button type="submit" className="confirm-cool" style={{margin:0}}>Save</button>
+            <button type="button" className="cancel-cool" onClick={onClose}>Cancel</button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 };
