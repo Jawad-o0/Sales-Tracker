@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import './App.css';
 
-// ------------------- INITIAL INVENTORY -------------------
 const DEFAULT_INVENTORY = [
   { id: 1, name: "Sugar (Cheeni)", price: 155, category: 'loose', type: 'solid' },
   { id: 2, name: "Basmati Rice", price: 340, category: 'loose', type: 'solid' },
@@ -41,19 +40,18 @@ const DEFAULT_INVENTORY = [
   { id: 54, name: "Lays Chips", price: 50, category: 'count' }
 ];
 
-// ------------------- HELPER FUNCTIONS -------------------
 const getTodayDate = () => new Date().toISOString().split('T')[0];
 
 const calculateTotal = (item, qty, unit) => {
   if (!item) return 0;
-  if (item.category === 'fixed') return item.price * qty;   // fixed items: price per packet
+  if (item.category === 'fixed') return item.price * qty;  
   if (item.category === 'count') return item.price * qty;
-  // loose items: price is per kg or per L
+  
   if (unit === 'g' || unit === 'ml') return (item.price / 1000) * qty;
-  return item.price * qty; // kg or L
+  return item.price * qty; 
 };
 
-// ------------------- MAIN COMPONENT -------------------
+
 const IrshadStore = () => {
   // Page & UI state
   const [page, setPage] = useState('shop');
@@ -79,10 +77,10 @@ const IrshadStore = () => {
   const [unit, setUnit] = useState('');
   const [showInventoryModal, setShowInventoryModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
-  const [editingSale, setEditingSale] = useState(null); // for edit sale modal
+  const [editingSale, setEditingSale] = useState(null); 
   
   // Report filters
-  const [dateRange, setDateRange] = useState('today'); // 'today', 'week', 'all'
+  const [dateRange, setDateRange] = useState('today'); 
   const [reportSearch, setReportSearch] = useState('');
   
   // Persist inventory & sales
@@ -120,7 +118,7 @@ const IrshadStore = () => {
   
   const filteredSales = useMemo(() => getFilteredSales(), [sales, dateRange, reportSearch]);
   
-  // Stats based on filtered sales
+  
   const totalRevenue = filteredSales.reduce((sum, s) => sum + s.total, 0);
   const DAILY_GOAL = 50000;
   const todaySales = sales.filter(s => s.date === getTodayDate());
@@ -221,7 +219,7 @@ const IrshadStore = () => {
     link.click();
   };
   
-  // Inventory CRUD
+ 
   const addOrUpdateItem = (item) => {
     if (editingItem) {
       setInventory(inventory.map(i => i.id === editingItem.id ? item : i));
@@ -299,7 +297,7 @@ const IrshadStore = () => {
         </main>
       ) : (
         <section className="report-view">
-          {/* Daily Goal Card */}
+          
           <div className="performance-card">
             <div className="goal-info">
               <span>Today's Target: {DAILY_GOAL.toLocaleString()} PKR</span>
@@ -313,7 +311,7 @@ const IrshadStore = () => {
             </div>
           </div>
           
-          {/* Filter bar for report */}
+          
           <div className="report-filters">
             <div className="date-buttons">
               <button className={dateRange === 'today' ? 'active' : ''} onClick={() => setDateRange('today')}>Today</button>
@@ -327,7 +325,7 @@ const IrshadStore = () => {
             <button className="export-btn" onClick={exportCSV}>📎 CSV</button>
           </div>
           
-          {/* Stats cards */}
+          
           <div className="revenue-glass">
             <div className="stat"><span>Top Item (by qty)</span><h2>{getTopItemByQuantity()}</h2></div>
             <div className="stat"><span>Avg Order</span><h2>{avgSale}</h2></div>
@@ -335,7 +333,7 @@ const IrshadStore = () => {
             <div className="stat"><span>Transactions</span><h2>{filteredSales.length}</h2></div>
           </div>
           
-          {/* Sales table */}
+          
           <div className="table-glass">
             <table>
               <thead>
@@ -358,7 +356,6 @@ const IrshadStore = () => {
         </section>
       )}
       
-      {/* Sale Modal (also reused for editing) */}
       {(activeItem || editingSale) && (
         <div className="overlay">
           <div className="cool-modal">
@@ -411,7 +408,7 @@ const IrshadStore = () => {
         </div>
       )}
       
-      {/* Inventory Management Modal */}
+      
       {showInventoryModal && (
         <InventoryModal 
           item={editingItem}
@@ -423,7 +420,6 @@ const IrshadStore = () => {
   );
 };
 
-// ------------------- INVENTORY MODAL COMPONENT -------------------
 const InventoryModal = ({ item, onSave, onClose }) => {
   const [name, setName] = useState(item?.name || '');
   const [price, setPrice] = useState(item?.price || 0);
